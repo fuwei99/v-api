@@ -17,7 +17,7 @@ class AppConfig(BaseModel):
     log_payload: bool = False  # 为 true 时将原始 fetch/response 保存到 logs 目录
     api_key: str | None = None
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
 class APIKeyInfo(BaseModel):
     name: str
