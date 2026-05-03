@@ -615,7 +615,12 @@ class RequestTransformer:
         
         
         if 'thoughtSignature' in part_dict:
-            cleaned_part['thoughtSignature'] = part_dict['thoughtSignature']
+            sig_val = part_dict['thoughtSignature']
+            if isinstance(sig_val, str) and sig_val == "context_engineering_is_the_way_to_go":
+                pass  # 跳过 GCP 特殊占位值，不转发给上游
+            else:
+                cleaned_part['thoughtSignature'] = sig_val
+        
         
         
         if 'functionCall' in part_dict:
@@ -688,9 +693,11 @@ class RequestTransformer:
 
     def _handle_thought_signature(self, contents: Any) -> Any:
         """
-        处理 thoughtSignature 字段
-        将 GCP 标准 API 的 context_engineering_is_the_way_to_go 替换为 Vertex AI 匿名端点所需的 skip_thought_signature_validator
+        处理 thoughtSignature 字段的 base64 编码
+        确保 thoughtSignature 字段正确编码为 base64 字符串
         """
+        import base64
+        
         if isinstance(contents, list):
             return[self._handle_thought_signature(item) for item in cast(list[Any], contents)]
         if isinstance(contents, dict):
@@ -699,15 +706,19 @@ class RequestTransformer:
             for k, v in contents_dict.items():
                 if k == 'parts' and isinstance(v, list):
                     v_list: list[Any] = cast(list[Any], v)
-                    new_parts: list[Any] = []
+                    
+                    new_parts: list[Any] =[]
                     for part in v_list:
                         if isinstance(part, dict):
                             new_part: dict[str, Any] = cast(dict[str, Any], part).copy()
+                            
                             if 'thoughtSignature' in new_part:
                                 signature_value = new_part['thoughtSignature']
-                                if isinstance(signature_value, str):
-                                    if signature_value == "context_engineering_is_the_way_to_go":
-                                        new_part['thoughtSignature'] = "skip_thought_signature_validator"
+                                if isinstance(signature_value, str) and signature_value == "context_engineering_is_the_way_to_go":
+                                    del new_part['thoughtSignature']
+                                elif isinstance(signature_value, str) and signature_value == "skip_thought_signature_validator":
+                                    encoded_bytes = base64.b64encode(signature_value.encode('utf-8'))
+                                    new_part['thoughtSignature'] = encoded_bytes.decode('utf-8')
                             new_parts.append(new_part)
                         else:
                             new_parts.append(part)
