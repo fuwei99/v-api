@@ -1,8 +1,7 @@
-
-
 import json
 import time
 import random
+import re
 from typing import Any, cast
 
 from src.core.config import load_config
@@ -105,7 +104,8 @@ class RequestTransformer:
 
         
         if 'contents' in new_variables:
-            converted_contents = self._handle_inline_data_case(new_variables['contents'])
+            converted_contents = self._restore_markdown_images_in_contents(new_variables['contents'])
+            converted_contents = self._handle_inline_data_case(converted_contents)
             converted_contents = self._handle_base64_in_contents(converted_contents)
             
             converted_contents = self._merge_contiguous_roles(converted_contents)
@@ -387,7 +387,86 @@ class RequestTransformer:
                         text_parts.append(str(part['text']))
                 return "".join(text_parts)
         return ""
-    
+
+    def _restore_markdown_images_in_contents(self, contents: Any) -> Any:
+        """
+        将文本中的 Markdown data-url 图片还原为 inlineData part。
+        支持将一个 text part 拆分为多个 part（前置文本 / 图片 / 后置文本）。
+        """
+        if isinstance(contents, list):
+            return [self._restore_markdown_images_in_contents(item) for item in cast(list[Any], contents)]
+
+        if not isinstance(contents, dict):
+            return contents
+
+        content_dict = cast(dict[str, Any], contents)
+        new_dict: dict[str, Any] = {}
+
+        for k, v in content_dict.items():
+            if k == 'parts' and isinstance(v, list):
+                expanded_parts: list[Any] = []
+                for part in cast(list[Any], v):
+                    if isinstance(part, dict):
+                        expanded_parts.extend(self._expand_markdown_image_part(cast(dict[str, Any], part)))
+                    else:
+                        expanded_parts.append(part)
+                new_dict[k] = expanded_parts
+            else:
+                new_dict[k] = self._restore_markdown_images_in_contents(v) if isinstance(v, (dict, list)) else v
+
+        return new_dict
+
+    def _expand_markdown_image_part(self, part: dict[str, Any]) -> list[dict[str, Any]]:
+        """
+        将单个 part 中的 markdown 图片拆分为 text / inlineData 组合。
+        仅处理纯 text part，避免影响 functionCall/functionResponse 等结构。
+        """
+        if any(key in part for key in ['inlineData', 'functionCall', 'functionResponse', 'fileData']):
+            return [part]
+
+        text_value = part.get('text')
+        if not isinstance(text_value, str) or not text_value:
+            return [part]
+
+        pattern = re.compile(r'!\[[^\]]*\]\(data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=_-]+)\)')
+        matches = list(pattern.finditer(text_value))
+        if not matches:
+            return [part]
+
+        result_parts: list[dict[str, Any]] = []
+        cursor = 0
+
+        for m in matches:
+            start, end = m.span()
+            mime_type = m.group(1)
+            image_data = m.group(2)
+
+            if start > cursor:
+                before_text = text_value[cursor:start]
+                if before_text:
+                    text_part = part.copy()
+                    text_part['text'] = before_text
+                    result_parts.append(text_part)
+
+            image_part = part.copy()
+            image_part.pop('text', None)
+            image_part['inlineData'] = {
+                'mimeType': mime_type,
+                'data': image_data,
+            }
+            result_parts.append(image_part)
+
+            cursor = end
+
+        if cursor < len(text_value):
+            after_text = text_value[cursor:]
+            if after_text:
+                tail_part = part.copy()
+                tail_part['text'] = after_text
+                result_parts.append(tail_part)
+
+        return result_parts if result_parts else [part]
+
     def _normalize_tools_format(self, tools: Any) -> list[dict[str, Any]]:
         """标准化 tools 格式为 Vertex AI 期望的格式 (List[Tool])"""
         converted_tools: Any = self._convert_tools_format(tools)
