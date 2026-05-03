@@ -5,6 +5,7 @@ import sys
 import os
 import json
 import uuid
+import re
 from datetime import datetime
 from typing import Any
 from contextvars import ContextVar
@@ -134,6 +135,29 @@ class BetterFormatter(logging.Formatter):
         else:
             return f"{now} {level_name:<7} [{module:^10}] {req_id[:8] if req_id else ''} {message}{exc_text}"
 
+class SensitiveDataFilter(logging.Filter):
+    """
+    用于过滤和遮蔽日志中敏感信息的过滤器。
+    目前支持遮蔽 URL 中的 ?key=... 参数。
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            # 遮蔽 URL 中的 key 参数: ?key=xxx 或 &key=xxx
+            # 匹配 key= 后面直到空格、引号、逗号或字符串结尾的内容
+            record.msg = re.sub(r'([?&]key=)[^ \s"\',]+', r'\1***', record.msg)
+            
+        # 同样处理 args 中的参数（uvicorn.access 有时会将格式化参数存放在 args 中）
+        if record.args:
+            new_args = []
+            for arg in record.args:
+                if isinstance(arg, str):
+                    new_args.append(re.sub(r'([?&]key=)[^ \s"\',]+', r'\1***', arg))
+                else:
+                    new_args.append(arg)
+            record.args = tuple(new_args)
+            
+        return True
+
 class LoggerManager:
     _instance = None
     
@@ -154,13 +178,23 @@ class LoggerManager:
         root.setLevel(logging.DEBUG)
         root.handlers.clear()
 
-        
+        # 遮蔽敏感信息过滤
+        sensitive_filter = SensitiveDataFilter()
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(BetterFormatter())
         console.setLevel(self._log_level)
+        console.addFilter(sensitive_filter)
         root.addHandler(console)
-
         
+        # 确保所有 handler 都加上过滤器
+        for h in root.handlers:
+            h.addFilter(sensitive_filter)
+
+        # 针对 uvicorn.access 特别加强
+        access_logger = logging.getLogger("uvicorn.access")
+        access_logger.addFilter(sensitive_filter)
+
+        # 降低第三方库日志级别
         for logger_name in ['httpx', 'httpcore', 'uvicorn', 'fastapi', 'hpack', 'h2', 'uvicorn.error', 'uvicorn.access']:
             l = logging.getLogger(logger_name)
             l.setLevel(logging.WARNING)
