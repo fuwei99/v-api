@@ -16,6 +16,8 @@ from src.utils.string_utils import snake_to_camel, camel_to_snake
 
 logger = get_logger(__name__)
 
+SEARCH_TOOL_TAG = "<|Search-Tool|>"
+
 class RequestTransformer:
     """
     请求参数转换器，负责将标准 Gemini API 格式的请求体转换为 Vertex AI 匿名接口所需的 GraphQL 格式。
@@ -98,6 +100,17 @@ class RequestTransformer:
         
         if self.config.get("anti_tracking", False):
             self._inject_anti_tracking(new_variables)
+
+        found_search_tool_tag = False
+        if 'contents' in new_variables:
+            new_variables['contents'], found_in_contents = self._remove_search_tool_tag(new_variables['contents'])
+            found_search_tool_tag = found_search_tool_tag or found_in_contents
+        if 'systemInstruction' in new_variables:
+            new_variables['systemInstruction'], found_in_system = self._remove_search_tool_tag(new_variables['systemInstruction'])
+            found_search_tool_tag = found_search_tool_tag or found_in_system
+
+        if found_search_tool_tag:
+            new_variables['tools'] = self._ensure_google_search_tool(new_variables.get('tools'))
 
         
         self._handle_system_instruction(new_variables)
@@ -470,11 +483,19 @@ class RequestTransformer:
     def _normalize_tools_format(self, tools: Any) -> list[dict[str, Any]]:
         """标准化 tools 格式为 Vertex AI 期望的格式 (List[Tool])"""
         converted_tools: Any = self._convert_tools_format(tools)
+
+        built_in_tool_keys = {'googleSearch', 'googleSearchRetrieval', 'codeExecution'}
+
+        if isinstance(converted_tools, dict):
+            converted_tools_dict = cast(dict[str, Any], converted_tools)
+            if any(key in converted_tools_dict for key in built_in_tool_keys):
+                return [converted_tools_dict]
         
         if isinstance(converted_tools, dict):
             
             if 'functionDeclarations' in converted_tools:
                 return[cast(dict[str, Any], converted_tools)]
+
             
             if 'name' in converted_tools:
                 return [{"functionDeclarations":[cast(dict[str, Any], converted_tools)]}]
@@ -484,9 +505,36 @@ class RequestTransformer:
             return[]
             
         converted_tools_list: list[Any] = cast(list[Any], converted_tools)
+
+        normalized_tools: list[dict[str, Any]] = []
+        function_declarations: list[dict[str, Any]] = []
+
+        for item in converted_tools_list:
+            if not isinstance(item, dict):
+                continue
+            item_dict = cast(dict[str, Any], item)
+
+            if any(key in item_dict for key in built_in_tool_keys):
+                normalized_tools.append(item_dict)
+                continue
+
+            if 'functionDeclarations' in item_dict and isinstance(item_dict['functionDeclarations'], list):
+                normalized_tools.append(item_dict)
+                continue
+
+            if 'name' in item_dict:
+                function_declarations.append(item_dict)
+
+        if function_declarations:
+            normalized_tools.append({'functionDeclarations': function_declarations})
+
+        if normalized_tools:
+            return normalized_tools
+
         first_item: Any = converted_tools_list[0]
         if not isinstance(first_item, dict):
             return[]
+
             
         
         if 'name' in first_item and 'functionDeclarations' not in first_item:
@@ -498,6 +546,58 @@ class RequestTransformer:
             return cast(list[dict[str, Any]], converted_tools_list)
             
         return[]
+
+    def _remove_search_tool_tag(self, data: Any) -> tuple[Any, bool]:
+        """递归删除 Search-Tool 标签，返回处理后的数据以及是否命中过标签。"""
+        found = False
+
+        if isinstance(data, list):
+            new_list: list[Any] = []
+            for item in cast(list[Any], data):
+                new_item, item_found = self._remove_search_tool_tag(item)
+                found = found or item_found
+                new_list.append(new_item)
+            return new_list, found
+
+        if isinstance(data, dict):
+            data_dict = cast(dict[str, Any], data)
+            new_dict: dict[str, Any] = {}
+            for k, v in data_dict.items():
+                if k == 'text' and isinstance(v, str):
+                    if SEARCH_TOOL_TAG in v:
+                        found = True
+                        new_dict[k] = v.replace(SEARCH_TOOL_TAG, '')
+                    else:
+                        new_dict[k] = v
+                else:
+                    new_value, value_found = self._remove_search_tool_tag(v)
+                    found = found or value_found
+                    new_dict[k] = new_value
+            return new_dict, found
+
+        return data, found
+
+    def _ensure_google_search_tool(self, tools: Any) -> list[dict[str, Any]]:
+        """确保 tools 中包含 googleSearch 内置工具。"""
+        google_search_tool: dict[str, Any] = {'googleSearch': {}}
+
+        if tools is None:
+            return [google_search_tool]
+
+        if isinstance(tools, dict):
+            tools_dict = cast(dict[str, Any], tools)
+            if 'googleSearch' in tools_dict:
+                return [tools_dict]
+            return [tools_dict, google_search_tool]
+
+        if isinstance(tools, list):
+            tools_list = cast(list[Any], tools)
+            for item in tools_list:
+                if isinstance(item, dict) and 'googleSearch' in item:
+                    return cast(list[dict[str, Any]], tools_list)
+            return cast(list[dict[str, Any]], tools_list) + [google_search_tool]
+
+        return [google_search_tool]
 
     def _handle_inline_data_case(self, contents: Any) -> Any:
         """
