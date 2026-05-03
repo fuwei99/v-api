@@ -422,7 +422,7 @@ class RequestTransformer:
 
     def _handle_inline_data_case(self, contents: Any) -> Any:
         """
-        递归处理内容，保护工具调用参数名并对齐 ID 字段
+        递归处理内容，保护工具调用参数名并对齐字段
         """
         if isinstance(contents, list):
             return [self._handle_inline_data_case(item) for item in cast(list[Any], contents)]
@@ -431,32 +431,30 @@ class RequestTransformer:
             for k, v in cast(dict[str, Any], contents).items():
                 camel_k = snake_to_camel(k)
                 if camel_k == 'inlineData' and isinstance(v, dict):
-                    v_dict = cast(dict[str, Any], v)
                     new_inline_data = {}
-                    for ik, iv in v_dict.items():
+                    for ik, iv in v.items():
                         camel_ik = snake_to_camel(ik)
                         new_inline_data[camel_ik] = iv
                     new_dict['inlineData'] = new_inline_data
                 elif camel_k == 'functionCall' and isinstance(v, dict):
                     v_dict = cast(dict[str, Any], v)
                     new_fc = {}
-                    
-                    fid = v_dict.get('id') or v_dict.get('tool_call_id') or v_dict.get('toolCallId')
-                    if fid: new_fc['id'] = fid
                     for ik, iv in v_dict.items():
                         cik = snake_to_camel(ik)
-                        if cik == 'args': new_fc[cik] = iv 
-                        elif cik not in ['id', 'toolCallId']: new_fc[cik] = self._handle_inline_data_case(iv)
+                        if cik == 'args': 
+                            new_fc[cik] = iv 
+                        elif cik not in ['id', 'toolCallId']: 
+                            new_fc[cik] = self._handle_inline_data_case(iv)
                     new_dict['functionCall'] = new_fc
                 elif camel_k == 'functionResponse' and isinstance(v, dict):
                     v_dict = cast(dict[str, Any], v)
                     new_fr = {}
-                    fid = v_dict.get('id') or v_dict.get('tool_call_id') or v_dict.get('toolCallId')
-                    if fid: new_fr['id'] = fid
                     for ik, iv in v_dict.items():
                         cik = snake_to_camel(ik)
-                        if cik == 'response': new_fr[cik] = iv 
-                        elif cik not in ['id', 'toolCallId']: new_fr[cik] = self._handle_inline_data_case(iv)
+                        if cik == 'response': 
+                            new_fr[cik] = iv 
+                        elif cik not in ['id', 'toolCallId']: 
+                            new_fr[cik] = self._handle_inline_data_case(iv)
                     new_dict['functionResponse'] = new_fr
                 else:
                     new_dict[camel_k] = self._handle_inline_data_case(v)

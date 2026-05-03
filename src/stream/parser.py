@@ -133,13 +133,7 @@ def _clean_part_fields(part: dict[str, Any]) -> dict[str, Any]:
         name = fc_dict.get('name')
         if isinstance(name, str) and name.strip():
             
-            call_id = fc_dict.get('id') or fc_dict.get('toolCallId') or fc_dict.get('tool_call_id')
-            if not call_id:
-                import time
-                call_id = f"call_{name}_{int(time.time() % 10000)}"
-            
             cleaned_part['functionCall'] = {
-                "id": call_id,
                 "name": name,
                 "args": fc_dict.get('args', {})
             }
