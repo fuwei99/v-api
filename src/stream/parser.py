@@ -107,57 +107,60 @@ def _extract_error_message(item: dict[str, Any]) -> str | None:
 def _clean_part_fields(part: dict[str, Any]) -> dict[str, Any]:
     """
     清理 part 中的空字段，只保留有实际内容的字段（增强版）
-    
-    Args:
-        part: 原始 part 字典
-        
-    Returns:
-        清理后的 part 字典
+    确保 Part 的纯净度：如果存在工具调用，则不应存在 text 字段。
     """
     cleaned_part: dict[str, Any] = {}
     
+    # 优先处理工具调用
+    has_tool_call = False
     
-    if 'text' in part and part['text'] is not None:
-        cleaned_part['text'] = part['text']
-        
-    
-    if 'thought' in part:
-        cleaned_part['thought'] = part['thought']
-    if 'thoughtSignature' in part:
-        cleaned_part['thoughtSignature'] = part['thoughtSignature']
-        
-    
+    # 1. 处理 functionCall
     func_call = part.get('functionCall')
     if isinstance(func_call, dict):
         fc_dict = cast(dict[str, Any], func_call)
         name = fc_dict.get('name')
         if isinstance(name, str) and name.strip():
-            
             cleaned_part['functionCall'] = {
                 "name": name,
                 "args": fc_dict.get('args', {})
             }
+            has_tool_call = True
             
-    
-    func_response = part.get('functionResponse')
-    if isinstance(func_response, dict):
-        name = func_response.get('name')
-        if isinstance(name, str) and name.strip():
-            cleaned_part['functionResponse'] = func_response
+    # 2. 处理 functionResponse
+    if not has_tool_call:
+        func_response = part.get('functionResponse')
+        if isinstance(func_response, dict):
+            name = func_response.get('name')
+            if isinstance(name, str) and name.strip():
+                cleaned_part['functionResponse'] = func_response
+                has_tool_call = True
 
-    
-    inline_data = part.get('inlineData')
-    if isinstance(inline_data, dict):
-        if (isinstance(inline_data.get('data'), str) and inline_data['data'].strip() and
-            isinstance(inline_data.get('mimeType'), str) and inline_data['mimeType'].strip()):
-            cleaned_part['inlineData'] = inline_data
+    # 3. 处理文本 (只有在没有工具调用时才添加，除非文本非空)
+    if 'text' in part and part['text'] is not None:
+        text_val = part['text']
+        if not has_tool_call or (isinstance(text_val, str) and text_val.strip()):
+            cleaned_part['text'] = text_val
+        
+    # 4. 处理思考过程 (仅当为 True 时保留)
+    is_thought = part.get('thought', False) is True
+    if is_thought:
+        cleaned_part['thought'] = True
+        if 'thoughtSignature' in part:
+            cleaned_part['thoughtSignature'] = part['thoughtSignature']
+        
+    # 5. 处理多媒体数据
+    if not has_tool_call:
+        inline_data = part.get('inlineData')
+        if isinstance(inline_data, dict):
+            if (isinstance(inline_data.get('data'), str) and inline_data['data'].strip() and
+                isinstance(inline_data.get('mimeType'), str) and inline_data['mimeType'].strip()):
+                cleaned_part['inlineData'] = inline_data
 
-    
-    file_data = part.get('fileData')
-    if isinstance(file_data, dict):
-        if (isinstance(file_data.get('fileUri'), str) and file_data['fileUri'].strip() and
-            isinstance(file_data.get('mimeType'), str) and file_data['mimeType'].strip()):
-            cleaned_part['fileData'] = file_data
+        file_data = part.get('fileData')
+        if isinstance(file_data, dict):
+            if (isinstance(file_data.get('fileUri'), str) and file_data['fileUri'].strip() and
+                isinstance(file_data.get('mimeType'), str) and file_data['mimeType'].strip()):
+                cleaned_part['fileData'] = file_data
             
     return cleaned_part
 
