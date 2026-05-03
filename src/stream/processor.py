@@ -111,7 +111,12 @@ class StreamProcessor:
         
         
         if prompt_feedback:
-            chunk["promptFeedback"] = prompt_feedback
+            # 过滤误导性的 BLOCKED_REASON_UNSPECIFIED（Google API 默认占位值，不代表真的被拦截）
+            pf = prompt_feedback.copy() if isinstance(prompt_feedback, dict) else prompt_feedback
+            if isinstance(pf, dict) and pf.get("blockReason") == "BLOCKED_REASON_UNSPECIFIED":
+                pf.pop("blockReason", None)
+            if pf:
+                chunk["promptFeedback"] = pf
         if usage_metadata:
             chunk["usageMetadata"] = usage_metadata
         if create_time:
