@@ -1,0 +1,24 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 日志和错误快照
+logs/
+errors/
+test_list_models.py
+
+# 不要把密钥打进镜像
+config/api_keys.txt
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 配置文件
+config/config.json

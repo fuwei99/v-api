@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  vertex-proxy:
+    build: .
+    container_name: vertex-proxy
+    ports:
+      - "7860:7860"
+    volumes:
+      # 挂载配置目录（含 config.json 和 api_keys.txt）
+      - ./config:/app/config
+      # 持久化日志和错误记录
+      - ./logs:/app/logs
+      - ./errors:/app/errors
+    # ── 方式一：用环境变量传入完整 JSON 配置（优先级最高，适合无挂载场景）──
+    # environment:
+    #   CONFIG: '{"port_api":7860,"debug":false,"anti_tracking":true,"proxy":{"enabled":true,"scheme":"http","host":"9.142.18.148","port":5807,"username":"wlwjruhk","password":"8cwh0csfw0lc"}}'
+    #
+    # ── 方式二：从 .env 文件读取（推荐，避免密码明文写在 compose 里）──
+    # env_file:
+    #   - .env
+    restart: unless-stopped

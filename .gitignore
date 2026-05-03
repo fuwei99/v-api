@@ -1,0 +1,25 @@
+# Logs
+logs/
+*.log
+
+# Tests
+test_list_models.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config
+config/config.json
