@@ -203,18 +203,25 @@ class StreamProcessor:
                                         for i, p in enumerate(current_parts):
                                             p_text = p.get("text", "")
                                             is_thought = p.get("thought", False)
+                                            has_non_text = any(k in p for k in ("functionCall", "functionResponse", "inlineData", "fileData"))
                                             
                                             if i not in sent_parts_content:
                                                 delta_parts.append(p)
-                                                sent_parts_content[i] = {"text": p_text, "thought": is_thought}
+                                                sent_parts_content[i] = {"text": p_text, "thought": is_thought, "sent_non_text": has_non_text}
                                             else:
-                                                old_content = sent_parts_content[i]["text"]
-                                                if len(p_text) > len(old_content):
+                                                old_info = sent_parts_content[i]
+                                                old_content = old_info["text"]
+                                                # 非文本内容（functionCall 等）是离散对象，必须完整发送
+                                                if has_non_text and not old_info.get("sent_non_text"):
+                                                    delta_parts.append(p)
+                                                    old_info["sent_non_text"] = True
+                                                    old_info["text"] = p_text
+                                                elif len(p_text) > len(old_content):
                                                     new_text = p_text[len(old_content):]
                                                     delta_part = p.copy()
                                                     delta_part["text"] = new_text
                                                     delta_parts.append(delta_part)
-                                                    sent_parts_content[i]["text"] = p_text
+                                                    old_info["text"] = p_text
                                         
                                         # 如果有内容更新，或者有结束标志且还没发过，就发送
                                         has_finish = current_result.get("finish_reason") is not None
