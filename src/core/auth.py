@@ -40,39 +40,17 @@ class APIKeyManager:
                 self.api_keys.clear()
                 self.key_names.clear()
             
-            # 1. 尝试从环境变量 CONFIG 或磁盘 config.json 加载密钥
-            try:
-                # 优先检查环境变量
-                env_config_str = os.environ.get("CONFIG", "").strip()
-                config_key = None
-                
-                if env_config_str:
-                    try:
-                        env_data = json.loads(env_config_str)
-                        config_key = env_data.get("api_key")
-                        if config_key:
-                            logger.info("成功从环境变量 CONFIG 加载了自定义 API 密钥 (已脱敏)")
-                    except Exception as e:
-                        logger.warning(f"解析环境变量 CONFIG 失败: {e}")
-                
-                # 如果环境变量没读到，再读磁盘文件
-                if not config_key:
-                    from .constants import CONFIG_FILE
-                    if os.path.exists(CONFIG_FILE):
-                        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                            config_data = json.load(f)
-                            config_key = config_data.get("api_key")
-                            if config_key:
-                                logger.info("成功从 config.json 加载了自定义 API 密钥 (已脱敏)")
-                
-                if config_key and isinstance(config_key, str):
-                    with self._lock:
-                        self.api_keys.add(config_key)
-                        self.key_names[config_key] = "config_source"
-            except Exception as e:
-                logger.warning(f"加载配置密钥时发生非预期错误: {e}")
+            # 1. 调用统一配置加载 (自动处理: 环境变量 CONFIG -> 本地 config.json -> 默认值)
+            config = load_config()
+            config_key = config.get("api_key")
+            
+            if config_key and isinstance(config_key, str):
+                with self._lock:
+                    self.api_keys.add(config_key)
+                    self.key_names[config_key] = "config_system"
+                logger.info("成功加载系统配置的 API 密钥 (已脱敏)")
 
-            # 2. 从 api_keys.txt 加载多个密钥
+            # 2. 从 api_keys.txt 加载多个密钥 (作为补充)
             if os.path.exists(self.keys_file):
                 with self._lock:
                     valid_count = 0
