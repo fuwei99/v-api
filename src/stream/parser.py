@@ -156,7 +156,18 @@ def _clean_part_fields(part: dict[str, Any]) -> dict[str, Any]:
         if isinstance(inline_data, dict):
             if (isinstance(inline_data.get('data'), str) and inline_data['data'].strip() and
                 isinstance(inline_data.get('mimeType'), str) and inline_data['mimeType'].strip()):
-                cleaned_part['inlineData'] = inline_data
+                mime_type = str(inline_data['mimeType']).strip()
+                data_b64 = str(inline_data['data']).strip()
+
+                if mime_type.startswith('image/'):
+                    markdown_image = f"![Generated Image](data:{mime_type};base64,{data_b64})"
+                    existing_text = cleaned_part.get('text')
+                    if isinstance(existing_text, str) and existing_text.strip():
+                        cleaned_part['text'] = f"{existing_text}\n\n{markdown_image}"
+                    else:
+                        cleaned_part['text'] = markdown_image
+                else:
+                    cleaned_part['inlineData'] = inline_data
 
         file_data = part.get('fileData')
         if isinstance(file_data, dict):
