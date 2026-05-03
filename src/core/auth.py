@@ -40,20 +40,37 @@ class APIKeyManager:
                 self.api_keys.clear()
                 self.key_names.clear()
             
-            # 1. 直接读取 config.json 获取最新密钥 (绕过缓存)
+            # 1. 尝试从环境变量 CONFIG 或磁盘 config.json 加载密钥
             try:
-                from .constants import CONFIG_FILE
-                if os.path.exists(CONFIG_FILE):
-                    with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                        config_data = json.load(f)
-                        config_key = config_data.get("api_key")
-                        if config_key and isinstance(config_key, str):
-                            with self._lock:
-                                self.api_keys.add(config_key)
-                                self.key_names[config_key] = "config_file"
-                            logger.info("成功从 config.json 加载了自定义 API 密钥 (已脱敏)")
+                # 优先检查环境变量
+                env_config_str = os.environ.get("CONFIG", "").strip()
+                config_key = None
+                
+                if env_config_str:
+                    try:
+                        env_data = json.loads(env_config_str)
+                        config_key = env_data.get("api_key")
+                        if config_key:
+                            logger.info("成功从环境变量 CONFIG 加载了自定义 API 密钥 (已脱敏)")
+                    except Exception as e:
+                        logger.warning(f"解析环境变量 CONFIG 失败: {e}")
+                
+                # 如果环境变量没读到，再读磁盘文件
+                if not config_key:
+                    from .constants import CONFIG_FILE
+                    if os.path.exists(CONFIG_FILE):
+                        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                            config_data = json.load(f)
+                            config_key = config_data.get("api_key")
+                            if config_key:
+                                logger.info("成功从 config.json 加载了自定义 API 密钥 (已脱敏)")
+                
+                if config_key and isinstance(config_key, str):
+                    with self._lock:
+                        self.api_keys.add(config_key)
+                        self.key_names[config_key] = "config_source"
             except Exception as e:
-                logger.warning(f"从 config.json 加载密钥失败: {e}")
+                logger.warning(f"加载配置密钥时发生非预期错误: {e}")
 
             # 2. 从 api_keys.txt 加载多个密钥
             if os.path.exists(self.keys_file):
