@@ -1,1 +1,0 @@
-admin_key:sk-123456:Test Key
