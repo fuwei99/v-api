@@ -41,7 +41,7 @@ class APIKeyManager:
             # 1. 从 config.json 加载单个密钥
             config = load_config()
             config_key = config.get("api_key")
-            if config_key and isinstance(config_key, str) and config_key.startswith('sk-'):
+            if config_key and isinstance(config_key, str):
                 with self._lock:
                     self.api_keys.add(config_key)
                     self.key_names[config_key] = "config_file"
@@ -73,11 +73,6 @@ class APIKeyManager:
 
                         key_name = parts[0].strip()
                         api_key = parts[1].strip()
-
-                        if not api_key.startswith('sk-'):
-                            logger.warning(f"第 {line_num} 行密钥格式无效 ({key_name})，跳过")
-                            error_count += 1
-                            continue
 
                         self.api_keys.add(api_key)
                         self.key_names[api_key] = key_name
