@@ -141,12 +141,14 @@ def _clean_part_fields(part: dict[str, Any]) -> dict[str, Any]:
         if not has_tool_call or (isinstance(text_val, str) and text_val.strip()):
             cleaned_part['text'] = text_val
         
-    # 4. 处理思考过程 (仅当为 True 时保留)
-    is_thought = part.get('thought', False) is True
-    if is_thought:
-        cleaned_part['thought'] = True
-        if 'thoughtSignature' in part:
-            cleaned_part['thoughtSignature'] = part['thoughtSignature']
+    # 4. 处理 thought / thoughtSignature（尽量保留上游原值）
+    if 'thought' in part:
+        cleaned_part['thought'] = part['thought']
+
+    if 'thoughtSignature' in part:
+        signature_value = part['thoughtSignature']
+        if not (isinstance(signature_value, str) and signature_value == "context_engineering_is_the_way_to_go"):
+            cleaned_part['thoughtSignature'] = signature_value
         
     # 5. 处理多媒体数据
     if not has_tool_call:
