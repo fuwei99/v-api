@@ -21,6 +21,78 @@ from src.core.auth import api_key_manager
 from src.utils.logger import get_logger, set_request_id
 
 
+THINKING_CONFIG_MAP: dict[str, dict[str, Any]] = {
+    "gemini-2.5-pro-nothinking": {
+        "temperature": 1,
+        "topP": 0.95,
+        "maxOutputTokens": 65535,
+        "thinkingConfig": {
+            "thinkingBudget": 128,
+            "includeThoughts": True,
+        },
+    },
+    "gemini-3-flash-preview-nothinking": {
+        "temperature": 1,
+        "topP": 0.95,
+        "maxOutputTokens": 65535,
+        "thinkingConfig": {
+            "thinkingLevel": "MINIMAL",
+            "includeThoughts": True,
+        },
+    },
+    "gemini-3.1-pro-preview-low": {
+        "temperature": 1,
+        "topP": 0.95,
+        "maxOutputTokens": 65535,
+        "thinkingConfig": {
+            "thinkingLevel": "LOW",
+            "includeThoughts": True,
+        },
+    },
+    "gemini-3.1-pro-preview-high": {
+        "temperature": 1,
+        "topP": 0.95,
+        "maxOutputTokens": 65535,
+        "thinkingConfig": {
+            "thinkingLevel": "HIGH",
+            "includeThoughts": True,
+        },
+    },
+}
+
+
+def _resolve_model_and_config(model: str, body: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """
+    解析带后缀的模型名，去掉后缀得到真实模型名，并将对应的 thinkingConfig 注入到 payload 中。
+    """
+    if model not in THINKING_CONFIG_MAP:
+        return model, body
+
+    preset = THINKING_CONFIG_MAP[model]
+    real_model = model.replace("-nothinking", "").replace("-low", "").replace("-high", "")
+
+    body = body.copy()
+    gen_config = body.get("generationConfig", {})
+    if isinstance(gen_config, dict):
+        gen_config = gen_config.copy()
+    else:
+        gen_config = {}
+
+    for k, v in preset.items():
+        if k == "thinkingConfig":
+            existing_tc = gen_config.get("thinkingConfig", {})
+            if isinstance(existing_tc, dict):
+                merged_tc = {**existing_tc, **v}
+                gen_config["thinkingConfig"] = merged_tc
+            else:
+                gen_config["thinkingConfig"] = v
+        else:
+            gen_config.setdefault(k, v)
+
+    body["generationConfig"] = gen_config
+    return real_model, body
+
+
 logger = get_logger(__name__)
 
 
@@ -237,12 +309,14 @@ def create_app(vertex_client: VertexAIClient) -> FastAPI:
         
         
         logger.debug_json("下游请求体", body)
-        
+
+        real_model, body = _resolve_model_and_config(model, body)
+
         async def stream_generator():
             chunk_count = 0
             try:
                 async for chunk in vertex_client.stream_chat(
-                    model=model, gemini_payload=body
+                    model=real_model, gemini_payload=body
                 ):
                     chunk_count += 1
                     yield chunk
@@ -278,12 +352,14 @@ def create_app(vertex_client: VertexAIClient) -> FastAPI:
         
         
         logger.debug_json("下游请求体", body)
-        
+
+        real_model, body = _resolve_model_and_config(model, body)
+
         start_time = time.time()
         
         
         response = await vertex_client.complete_chat(
-            model=model,
+            model=real_model,
             gemini_payload=body
         )
         
