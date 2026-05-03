@@ -17,6 +17,7 @@ from src.utils.string_utils import snake_to_camel, camel_to_snake
 logger = get_logger(__name__)
 
 SEARCH_TOOL_TAG = "<|Search-Tool|>"
+IMAGE_SIZE_TAG_PATTERN = re.compile(r"<\|imageSize:(512|1K|2K|4K)\|>", re.IGNORECASE)
 
 class RequestTransformer:
     """
@@ -43,7 +44,7 @@ class RequestTransformer:
         """
         核心逻辑：将 Gemini 格式的请求体（由用户或下游发送）组装成 Vertex AI 匿名 GraphQL 接口接受的 payload。
         
-        参数:
+        参数：
             model: 目标模型 ID。
             gemini_payload: 符合 Gemini API 标准的原始请求内容（contents, tools 等）。
             original_body: 用于提供 querySignature 和 operationName 的原始结构。
@@ -69,6 +70,7 @@ class RequestTransformer:
 
         target_model = self.model_builder.parse_model_name(model)
         new_variables['model'] = target_model
+        is_image_model = ('image' in str(model).lower()) or ('image' in str(target_model).lower())
 
         
         supported_fields =[
@@ -102,12 +104,21 @@ class RequestTransformer:
             self._inject_anti_tracking(new_variables)
 
         found_search_tool_tag = False
+        found_image_size_tag: str | None = None
         if 'contents' in new_variables:
             new_variables['contents'], found_in_contents = self._remove_search_tool_tag(new_variables['contents'])
             found_search_tool_tag = found_search_tool_tag or found_in_contents
+            if is_image_model:
+                new_variables['contents'], image_size_from_contents = self._extract_and_remove_image_size_tag(new_variables['contents'])
+                if image_size_from_contents is not None:
+                    found_image_size_tag = image_size_from_contents
         if 'systemInstruction' in new_variables:
             new_variables['systemInstruction'], found_in_system = self._remove_search_tool_tag(new_variables['systemInstruction'])
             found_search_tool_tag = found_search_tool_tag or found_in_system
+            if is_image_model:
+                new_variables['systemInstruction'], image_size_from_system = self._extract_and_remove_image_size_tag(new_variables['systemInstruction'])
+                if image_size_from_system is not None:
+                    found_image_size_tag = image_size_from_system
 
         if found_search_tool_tag:
             new_variables['tools'] = self._ensure_google_search_tool(new_variables.get('tools'))
@@ -149,6 +160,16 @@ class RequestTransformer:
             gemini_payload=gemini_payload,
             **kwargs
         )
+
+        if is_image_model and found_image_size_tag is not None:
+            image_config_value = gen_config.get('imageConfig')
+            if isinstance(image_config_value, dict):
+                image_config = cast(dict[str, Any], image_config_value).copy()
+            else:
+                image_config = {}
+            image_config['imageSize'] = found_image_size_tag
+            gen_config['imageConfig'] = image_config
+
         if gen_config:
             
             if 'logitBias' in gen_config and isinstance(gen_config['logitBias'], dict):
@@ -598,6 +619,43 @@ class RequestTransformer:
             return cast(list[dict[str, Any]], tools_list) + [google_search_tool]
 
         return [google_search_tool]
+
+    def _extract_and_remove_image_size_tag(self, data: Any) -> tuple[Any, str | None]:
+        """递归提取并移除 imageSize 标签；若多个命中，返回最后一个。"""
+        last_image_size: str | None = None
+
+        if isinstance(data, list):
+            new_list: list[Any] = []
+            for item in cast(list[Any], data):
+                new_item, found_size = self._extract_and_remove_image_size_tag(item)
+                if found_size is not None:
+                    last_image_size = found_size
+                new_list.append(new_item)
+            return new_list, last_image_size
+
+        if isinstance(data, dict):
+            data_dict = cast(dict[str, Any], data)
+            new_dict: dict[str, Any] = {}
+            for k, v in data_dict.items():
+                if k == 'text' and isinstance(v, str):
+                    matches = list(IMAGE_SIZE_TAG_PATTERN.finditer(v))
+                    if matches:
+                        raw_size = matches[-1].group(1)
+                        normalized_size = raw_size.upper()
+                        if normalized_size not in {'1K', '2K', '4K'}:
+                            normalized_size = '512'
+                        last_image_size = normalized_size
+                        new_dict[k] = IMAGE_SIZE_TAG_PATTERN.sub('', v)
+                    else:
+                        new_dict[k] = v
+                else:
+                    new_value, found_size = self._extract_and_remove_image_size_tag(v)
+                    if found_size is not None:
+                        last_image_size = found_size
+                    new_dict[k] = new_value
+            return new_dict, last_image_size
+
+        return data, last_image_size
 
     def _handle_inline_data_case(self, contents: Any) -> Any:
         """
