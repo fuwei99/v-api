@@ -265,10 +265,18 @@ class VertexAIClient:
                     is_first_auth_attempt = True
                 
                 if not recaptcha_token:
+                    pool = load_config().get("node_pool", [])
+                    if len(pool) > 1:
+                        yield AuthenticationError(
+                            "Could not fetch recaptcha token via current proxy."
+                        ).to_sse()
+                        return
                     if attempt == max_retries:
                         yield AuthenticationError("Could not fetch recaptcha token.").to_sse()
                         return
                     attempt += 1
+                    await session.close()
+                    session = self.network.create_session()
                     await asyncio.sleep(1)
                     continue
                 
