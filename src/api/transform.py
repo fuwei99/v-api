@@ -131,6 +131,8 @@ class RequestTransformer:
             converted_contents = self._restore_markdown_images_in_contents(new_variables['contents'])
             converted_contents = self._handle_inline_data_case(converted_contents)
             converted_contents = self._handle_base64_in_contents(converted_contents)
+            if is_image_model:
+                converted_contents = self._promote_model_images_to_user_reference(converted_contents)
             
             converted_contents = self._merge_contiguous_roles(converted_contents)
             
@@ -500,6 +502,79 @@ class RequestTransformer:
                 result_parts.append(tail_part)
 
         return result_parts if result_parts else [part]
+
+    def _promote_model_images_to_user_reference(self, contents: Any) -> Any:
+        """
+        图像生成/编辑模型通常只把 user 消息里的图片当参考图。
+        如果上一轮 model 以 Markdown data-url/inlineData 返回图片，客户端回传历史时图片会落在
+        role=model 的 parts 里；这里把这些图片复制到下一条 user 消息前面，避免图像模型看不见参考图。
+        同时把 model 里的图片替换为非空文本，避免模型历史消息变成空内容。
+        """
+        if not isinstance(contents, list):
+            return contents
+
+        promoted_contents: list[Any] = []
+        pending_images: list[dict[str, Any]] = []
+        reference_notice = "注意：附件中是你上一轮对话生成的图片。"
+
+        for content in cast(list[Any], contents):
+            if not isinstance(content, dict):
+                promoted_contents.append(content)
+                continue
+
+            content_dict = cast(dict[str, Any], content)
+            role = content_dict.get('role')
+            parts = content_dict.get('parts')
+
+            if role == 'model' and isinstance(parts, list):
+                new_model_parts: list[Any] = []
+                found_model_image = False
+                for part in cast(list[Any], parts):
+                    if not isinstance(part, dict):
+                        new_model_parts.append(part)
+                        continue
+                    inline_data = cast(dict[str, Any], part).get('inlineData')
+                    if (
+                        isinstance(inline_data, dict)
+                        and str(inline_data.get('mimeType', '')).startswith('image/')
+                        and inline_data.get('data')
+                    ):
+                        pending_images.append({'inlineData': cast(dict[str, Any], inline_data).copy()})
+                        found_model_image = True
+                        continue
+                    new_model_parts.append(part)
+
+                if found_model_image:
+                    if not any(
+                        isinstance(p, dict)
+                        and isinstance(p.get('text'), str)
+                        and p.get('text')
+                        for p in new_model_parts
+                    ):
+                        new_model_parts.append({'text': 'Generated an image.'})
+                    new_model_content = content_dict.copy()
+                    new_model_content['parts'] = new_model_parts
+                    promoted_contents.append(new_model_content)
+                else:
+                    promoted_contents.append(content_dict)
+
+                continue
+
+            if role == 'user' and pending_images:
+                existing_parts = parts if isinstance(parts, list) else []
+                new_content = content_dict.copy()
+                new_content['parts'] = (
+                    [{'text': reference_notice}]
+                    + [img.copy() for img in pending_images]
+                    + list(cast(list[Any], existing_parts))
+                )
+                pending_images = []
+                promoted_contents.append(new_content)
+                continue
+
+            promoted_contents.append(content_dict)
+
+        return promoted_contents
 
     def _normalize_tools_format(self, tools: Any) -> list[dict[str, Any]]:
         """标准化 tools 格式为 Vertex AI 期望的格式 (List[Tool])"""
@@ -1083,6 +1158,21 @@ class ResponseAggregator:
             raise InternalError(message=f"Non-streaming request error: {e}")
         
         
+        inline_image_parts = [
+            p for p in all_parts
+            if isinstance(p.get('inlineData'), dict)
+            and str(p['inlineData'].get('mimeType', '')).startswith('image/')
+            and p['inlineData'].get('data')
+        ]
+        if _raw_image_response and inline_image_parts:
+            return {
+                "created": int(time.time()),
+                "data": [
+                    {"b64_json": str(p['inlineData']['data'])}
+                    for p in inline_image_parts
+                ],
+            }
+
         full_text_content = "".join(str(p['text']) for p in all_parts if 'text' in p)
 
         if full_text_content.startswith("![Generated Image](data:"):
