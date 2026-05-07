@@ -21,10 +21,19 @@ def load_config() -> dict[str, Any]:
     default_config = AppConfig()
 
     # ── 优先：环境变量 CONFIG ──────────────────────────────────────
+    # CONFIG 既支持 JSON 字符串，也支持指向 JSON 文件的路径。
     env_config_str = os.environ.get("CONFIG", "").strip()
     if env_config_str:
         try:
-            env_config = json.loads(env_config_str)
+            env_config_path = Path(env_config_str)
+            if env_config_path.exists() and env_config_path.is_file():
+                with open(env_config_path, 'r', encoding='utf-8') as f:
+                    env_config = json.load(f)
+                config_source = str(env_config_path)
+            else:
+                env_config = json.loads(env_config_str)
+                config_source = "CONFIG"
+
             config_dict = default_config.model_dump()
             config_dict.update(env_config)
             final_config = AppConfig(**config_dict)
@@ -32,6 +41,7 @@ def load_config() -> dict[str, Any]:
             from src.utils.logger import get_request_id
             if not get_request_id():
                 logger.info("配置已从环境变量 CONFIG 加载", extra={
+                    "config_source": config_source,
                     "port_api": final_dict.get("port_api"),
                     "debug_mode": final_dict.get("debug")
                 })

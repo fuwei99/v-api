@@ -65,31 +65,35 @@ def _get_admin_password() -> str:
     env_pw = os.environ.get("ADMIN_PASSWORD", "").strip()
     if env_pw:
         return env_pw
+    loaded_cfg = load_config()
+    loaded_pw = str(loaded_cfg.get("admin_password") or "").strip()
+    if loaded_pw:
+        return loaded_pw
+    loaded_api_key = str(loaded_cfg.get("api_key") or "").strip()
+    if loaded_api_key:
+        return loaded_api_key
     cfg = _read_json(CONFIG_FILE, {})
     return str(cfg.get("admin_password") or "").strip()
 
 
 def ensure_admin_password() -> str:
     """启动时确保有管理员密码，没有就生成一个并写入配置"""
-    env_pw = os.environ.get("ADMIN_PASSWORD", "").strip()
-    if env_pw:
-        logger.info("[Admin] 使用环境变量 ADMIN_PASSWORD 作为管理员密码")
-        return env_pw
+    configured_pw = _get_admin_password()
+    if configured_pw:
+        logger.info("[Admin] 管理员密码已配置")
+        return configured_pw
 
     cfg = _read_json(CONFIG_FILE, {})
-    existing = str(cfg.get("admin_password") or "").strip()
-    if existing:
-        return existing
 
     new_pw = secrets.token_urlsafe(9)
     cfg["admin_password"] = new_pw
     _write_json(CONFIG_FILE, cfg)
     bar = "=" * 60
     logger.warning(bar)
-    logger.warning("🔐 首次启动，已自动生成管理员密码：")
-    logger.warning(f"   密码:    {new_pw}")
+    logger.warning("🔐 首次启动，已自动生成管理员密码。")
     logger.warning(f"   访问:    http://<host>:<port>/admin")
-    logger.warning("   密码已写入 config/config.json，登录后可在面板修改")
+    logger.warning("   密码已写入 config/config.json，日志中不会显示明文密码。")
+    logger.warning("   也可以通过 ADMIN_PASSWORD 或 CONFIG.admin_password 显式配置。")
     logger.warning(bar)
     return new_pw
 

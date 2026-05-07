@@ -5,7 +5,7 @@ import time
 from typing import Any, cast
 import collections.abc
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
@@ -224,7 +224,7 @@ def create_app(vertex_client: VertexAIClient) -> FastAPI:
     logger.debug("添加中间件")
     app.add_middleware(
         APIKeyMiddleware,
-        excluded_paths=["/", "/health", "/admin"],
+        excluded_paths=["/", "/health", "/admin", "/favicon.ico"],
         excluded_prefixes=["/api/admin/", "/admin/", "/static/"],
     )
     app.add_middleware(
@@ -262,16 +262,15 @@ def create_app(vertex_client: VertexAIClient) -> FastAPI:
 
     
 
-    async def root() -> dict[str, str]:
-        """根路径，返回服务信息"""
+    async def root() -> RedirectResponse:
+        """根路径跳转到管理面板。"""
         logger.debug("处理根路径请求")
-        return {
-            "message": "Vertex AI Proxy Server (Anonymous Edition)",
-            "version": "1.1.0",
-            "auth": "API Key Authentication Required",
-            "docs": "Only Gemini API Compatible"
-        }
+        return RedirectResponse(url="/admin", status_code=302)
     app.get("/")(root)
+
+    async def favicon() -> Response:
+        return Response(status_code=204)
+    app.get("/favicon.ico")(favicon)
 
     async def health_check() -> dict[str, str | int]:
         """健康检查端点"""
