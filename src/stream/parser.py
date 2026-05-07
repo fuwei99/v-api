@@ -11,6 +11,19 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+def _image_inline_data_to_markdown(inline_data: dict[str, Any]) -> str | None:
+    mime_type = inline_data.get('mimeType')
+    data_b64 = inline_data.get('data')
+    if (
+        isinstance(mime_type, str)
+        and mime_type.strip().startswith('image/')
+        and isinstance(data_b64, str)
+        and data_b64.strip()
+    ):
+        return f"![Generated Image](data:{mime_type.strip()};base64,{data_b64.strip()})"
+    return None
+
 def extract_path_index(result: dict[str, Any]) -> int:
     """从 result 对象中提取 path 索引"""
     path = result.get('path', [])
@@ -156,10 +169,12 @@ def _clean_part_fields(part: dict[str, Any]) -> dict[str, Any]:
         if isinstance(inline_data, dict):
             if (isinstance(inline_data.get('data'), str) and inline_data['data'].strip() and
                 isinstance(inline_data.get('mimeType'), str) and inline_data['mimeType'].strip()):
-                mime_type = str(inline_data['mimeType']).strip()
-                data_b64 = str(inline_data['data']).strip()
-
-                cleaned_part['inlineData'] = inline_data
+                image_markdown = _image_inline_data_to_markdown(cast(dict[str, Any], inline_data))
+                if image_markdown:
+                    existing_text = str(cleaned_part.get('text') or '')
+                    cleaned_part['text'] = existing_text + image_markdown
+                else:
+                    cleaned_part['inlineData'] = inline_data
 
         file_data = part.get('fileData')
         if isinstance(file_data, dict):
