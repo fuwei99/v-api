@@ -41,15 +41,29 @@ async def main() -> None:
     logger.debug("初始化 API 密钥管理器")
     api_key_manager.load_keys()
 
-    from src.api.admin import ensure_admin_password
+    from src.api.admin import ensure_admin_password, refresh_subscription_pool
     ensure_admin_password()
 
     from src.transport.codec import needs_worker
     from src.transport.worker import worker
 
+    subscription_url = str(config.get("subscription_url") or "").strip()
+    subscription_refreshed = False
+    if subscription_url:
+        try:
+            refresh_result = await refresh_subscription_pool(subscription_url, activate=True)
+            subscription_refreshed = bool(refresh_result.get("pool_count"))
+            logger.success(
+                "✅ 已自动导入订阅节点池: "
+                f"{refresh_result.get('pool_count', 0)} 个启用，"
+                f"{refresh_result.get('excluded_count', 0)} 个香港/新加坡节点已跳过"
+            )
+        except Exception as e:
+            logger.warning(f"⚠ 自动导入订阅节点失败: {e}")
+
     saved_uri = str(config.get("active_node_uri") or "").strip()
     saved_name = str(config.get("active_node_name") or "")
-    if saved_uri and needs_worker(saved_uri):
+    if not subscription_refreshed and saved_uri and needs_worker(saved_uri):
         try:
             proxy_url = worker.start_with_uri(saved_uri, name=saved_name)
             logger.success(f"✅ 已自动恢复上次的代理节点: {saved_name or saved_uri[:40]} → {proxy_url}")

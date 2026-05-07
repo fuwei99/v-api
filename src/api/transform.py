@@ -1076,6 +1076,36 @@ class ResponseAggregator:
     """响应聚合器"""
 
     @staticmethod
+    def _image_inline_data_to_markdown(inline_data: dict[str, Any]) -> str | None:
+        mime_type = inline_data.get('mimeType')
+        data_b64 = inline_data.get('data')
+        if (
+            isinstance(mime_type, str)
+            and mime_type.strip().startswith('image/')
+            and isinstance(data_b64, str)
+            and data_b64.strip()
+        ):
+            return f"![Generated Image](data:{mime_type.strip()};base64,{data_b64.strip()})"
+        return None
+
+    @classmethod
+    def _convert_inline_images_to_markdown(cls, parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        converted_parts: list[dict[str, Any]] = []
+        for part in parts:
+            inline_data = part.get('inlineData')
+            if isinstance(inline_data, dict):
+                image_markdown = cls._image_inline_data_to_markdown(cast(dict[str, Any], inline_data))
+                if image_markdown:
+                    new_part = part.copy()
+                    existing_text = str(new_part.get('text') or '')
+                    new_part.pop('inlineData', None)
+                    new_part['text'] = existing_text + image_markdown
+                    converted_parts.append(new_part)
+                    continue
+            converted_parts.append(part)
+        return converted_parts
+
+    @staticmethod
     async def aggregate_stream(stream_generator: Any, _raw_image_response: bool = False) -> dict[str, Any]:
         """
         聚合流式响应为非流式对象
@@ -1172,6 +1202,8 @@ class ResponseAggregator:
                     for p in inline_image_parts
                 ],
             }
+
+        all_parts = ResponseAggregator._convert_inline_images_to_markdown(all_parts)
 
         full_text_content = "".join(str(p['text']) for p in all_parts if 'text' in p)
 

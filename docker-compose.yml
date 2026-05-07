@@ -14,7 +14,7 @@ services:
       - ./errors:/app/errors
     # ── 方式一：用环境变量传入完整 JSON 配置（优先级最高，适合无挂载场景）──
     # environment:
-    #   CONFIG: '{"port_api":7860,"debug":false,"anti_tracking":true,"api_key":"wei123..","admin_password":"wei123..","proxy":{"enabled":true,"scheme":"http","host":"9.142.18.148","port":5807,"username":"wlwjruhk","password":"8cwh0csfw0lc"}}'
+    #   CONFIG: '{"port_api":7860,"debug":false,"anti_tracking":true,"api_key":"wei123..","admin_password":"wei123..","subscription_url":"https://example.com/subscribe","allow_hk_sg_nodes":false,"proxy":{"enabled":true,"scheme":"http","host":"9.142.18.148","port":5807,"username":"wlwjruhk","password":"8cwh0csfw0lc"}}'
     #
     # ── 方式二：从 .env 文件读取（推荐，避免密码明文写在 compose 里）──
     # env_file:

@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from src.core.auth import api_key_manager
-from src.core.config import load_config
+from src.core.config import load_config, update_runtime_config
 from src.transport.worker import worker
 from src.transport.codec import needs_worker
 from src.utils.logger import get_logger
@@ -59,6 +59,8 @@ def _write_json(path: Path, data: Any) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
+    if path == CONFIG_FILE and isinstance(data, dict):
+        update_runtime_config(data)
 
 
 def _get_admin_password() -> str:
@@ -428,6 +430,74 @@ async def _fetch_subscription(url: str) -> list[dict[str, Any]]:
     return best
 
 
+_HK_SG_KEYWORDS = (
+    "香港", "港", "hong kong", "hongkong", " hk", "[hk", "-hk", "_hk", "hkg",
+    "新加坡", "狮城", "singapore", " sg", "[sg", "-sg", "_sg", "sgp",
+)
+
+
+def _is_hk_sg_node(node: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(node.get(key, ""))
+        for key in ("name", "server", "type")
+    ).lower()
+    padded = f" {text} "
+    return any(keyword in padded for keyword in _HK_SG_KEYWORDS)
+
+
+def _build_auto_node_pool(nodes: list[dict[str, Any]], cfg: dict[str, Any]) -> tuple[list[dict[str, str]], int]:
+    allow_hk_sg = bool(cfg.get("allow_hk_sg_nodes", False))
+    pool: list[dict[str, str]] = []
+    excluded = 0
+
+    for node in nodes:
+        uri = str(node.get("raw_uri", "")).strip()
+        if not uri:
+            continue
+        if not allow_hk_sg and _is_hk_sg_node(node):
+            excluded += 1
+            continue
+        pool.append({
+            "raw_uri": uri,
+            "name": str(node.get("name", "")),
+        })
+
+    return pool, excluded
+
+
+async def refresh_subscription_pool(url: str, activate: bool = True) -> dict[str, Any]:
+    """拉取订阅，默认启用除香港/新加坡外的全部节点作为节点池。"""
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("订阅地址必须是 http(s):// 开头")
+
+    nodes = await _fetch_subscription(url)
+    cfg = load_config()
+    pool, excluded_count = _build_auto_node_pool(nodes, cfg)
+
+    cfg["subscription_url"] = url
+    cfg["node_pool"] = pool
+    cfg["node_pool_index"] = 0
+    _write_json(CONFIG_FILE, cfg)
+
+    active_proxy_url = ""
+    active_node_name = ""
+    if activate and pool:
+        first = pool[0]
+        active_node_name = first.get("name", "")
+        active_proxy_url = await _activate_node_by_uri(first["raw_uri"], active_node_name, 0)
+
+    return {
+        "total": len(nodes),
+        "nodes": nodes,
+        "pool": pool,
+        "pool_count": len(pool),
+        "excluded_count": excluded_count,
+        "active_proxy_url": active_proxy_url,
+        "active_node_name": active_node_name,
+    }
+
+
 # ==================== 路由 ====================
 
 router = APIRouter()
@@ -458,6 +528,7 @@ class KeyBody(BaseModel):
 
 class SubscribeBody(BaseModel):
     url: str
+    auto_activate: bool = True
 
 
 class UseNodeBody(BaseModel):
@@ -647,14 +718,16 @@ async def fetch_subscription(body: SubscribeBody, request: Request) -> dict[str,
     url = body.url.strip()
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="订阅地址必须是 http(s):// 开头")
-    nodes = await _fetch_subscription(url)
-    # 保存订阅地址，下次打开面板自动回填
-    cfg = _read_json(CONFIG_FILE, {})
-    cfg["subscription_url"] = url
-    _write_json(CONFIG_FILE, cfg)
+    result = await refresh_subscription_pool(url, activate=True)
+    nodes = result["nodes"]
     return {
         "total": len(nodes),
         "usable_count": sum(1 for n in nodes if n.get("usable_as_proxy")),
+        "pool_count": result["pool_count"],
+        "pool": result["pool"],
+        "excluded_count": result["excluded_count"],
+        "active_proxy_url": result["active_proxy_url"],
+        "active_node_name": result["active_node_name"],
         "nodes": nodes,
     }
 

@@ -796,6 +796,7 @@ async function fetchSubscription(opts={}) {
     const data = await api('POST','/api/admin/subscribe',{url});
     document.getElementById('subSummary').textContent = `共 ${data.total} 个节点`;
     _allNodes = data.nodes||[];
+    if (data.pool) _nodePool = data.pool;
     if (!_allNodes.length) { listEl.innerHTML='<div class="empty">没有解析到任何节点</div>'; return; }
     document.getElementById('poolBar').style.display = 'flex';
     renderNodes(_allNodes);

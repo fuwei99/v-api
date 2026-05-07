@@ -10,6 +10,20 @@ from .types import AppConfig
 logger = get_logger(__name__)
 
 CONFIG_FILE = str(Path(__file__).parent.parent.parent / "config" / "config.json")
+_RUNTIME_OVERRIDES: dict[str, Any] = {}
+
+
+def update_runtime_config(values: dict[str, Any]) -> None:
+    """更新当前进程内的动态配置，供管理面板在 CONFIG 环境变量部署场景下即时生效。"""
+    _RUNTIME_OVERRIDES.update(values)
+
+
+def _apply_runtime_overrides(config: dict[str, Any]) -> dict[str, Any]:
+    if not _RUNTIME_OVERRIDES:
+        return config
+    merged = config.copy()
+    merged.update(_RUNTIME_OVERRIDES)
+    return merged
 
 def load_config() -> dict[str, Any]:
     """
@@ -53,7 +67,7 @@ def load_config() -> dict[str, Any]:
                     "port_api": final_dict.get("port_api"),
                     "debug_mode": final_dict.get("debug")
                 })
-            return final_dict
+            return _apply_runtime_overrides(final_dict)
         except Exception as e:
             logger.error(f"环境变量 CONFIG 解析失败，回退到配置文件: {type(e).__name__}: {e}")
 
@@ -62,7 +76,7 @@ def load_config() -> dict[str, Any]:
         logger.info("配置文件不存在，使用默认配置", extra={
             "config_file": CONFIG_FILE
         })
-        return default_config.model_dump()
+        return _apply_runtime_overrides(default_config.model_dump())
         
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -81,12 +95,12 @@ def load_config() -> dict[str, Any]:
                     "port_api": final_dict.get("port_api"),
                     "debug_mode": final_dict.get("debug")
                 })
-            return final_dict
+            return _apply_runtime_overrides(final_dict)
             
     except Exception as e:
         logger.error(f"配置文件加载失败，使用默认配置", extra={
             "config_file": CONFIG_FILE,
             "error": str(e)
         })
-        return default_config.model_dump()
+        return _apply_runtime_overrides(default_config.model_dump())
 

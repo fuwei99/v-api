@@ -23,6 +23,7 @@ class AppConfig(BaseModel):
     active_node_name: str = ""  # 当前激活节点的显示名
     node_pool: list[dict[str, Any]] = Field(default_factory=list)  # 节点池
     node_pool_index: int = 0  # 当前节点池索引
+    allow_hk_sg_nodes: bool = False  # 订阅自动导入时是否允许香港/新加坡节点
     anti429_enabled: bool = False
     anti429_target: str = "system"
     force_no_stream: bool = False
