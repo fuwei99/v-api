@@ -22,6 +22,18 @@ from src.utils.logger import get_logger, set_request_id
 
 
 THINKING_CONFIG_MAP: dict[str, dict[str, Any]] = {
+    "gemini-3.1-flash-image-preview": {
+        "thinkingConfig": {
+            "thinkingLevel": "HIGH",
+            "includeThoughts": True,
+        },
+    },
+    "gemini-3.1-flash-image-preview-nothinking": {
+        "thinkingConfig": {
+            "thinkingLevel": "MINIMAL",
+            "includeThoughts": True,
+        },
+    },
     "gemini-2.5-pro-nothinking": {
         "temperature": 1,
         "topP": 0.95,
