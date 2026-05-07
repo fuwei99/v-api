@@ -261,11 +261,15 @@ class VertexAIClient:
         try:
             while attempt <= max_retries:
                 if not recaptcha_token:
-                    recaptcha_token = await self.network.fetch_recaptcha_token(session)
+                    pool = load_config().get("node_pool", [])
+                    token_attempts = 1 if len(pool) > 1 else 3
+                    recaptcha_token = await self.network.fetch_recaptcha_token(
+                        session,
+                        max_attempts=token_attempts
+                    )
                     is_first_auth_attempt = True
                 
                 if not recaptcha_token:
-                    pool = load_config().get("node_pool", [])
                     if len(pool) > 1:
                         yield AuthenticationError(
                             "Could not fetch recaptcha token via current proxy."

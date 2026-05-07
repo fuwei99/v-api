@@ -57,12 +57,12 @@ class NetworkClient:
         except Exception:
             return get_primary_proxy(self.config)
 
-    async def fetch_recaptcha_token(self, session: requests.AsyncSession) -> Optional[str]:
+    async def fetch_recaptcha_token(self, session: requests.AsyncSession, max_attempts: int = 3) -> Optional[str]:
         """获取 Google Recaptcha Token"""
         import os
         import base64
         
-        for retry in range(3):
+        for retry in range(max(1, max_attempts)):
             try:
                 
                 js_url = f"{self.recaptcha_base_api}/recaptcha/enterprise.js?render=6LdCjtspAAAAAMcV4TGdWLJqRTEk1TfpdLqEnKdj"
@@ -88,7 +88,7 @@ class NetworkClient:
                 token_element = soup.find("input", {"id": "recaptcha-token"})
                 
                 if token_element is None:
-                    logger.warning(f"anchor_html 未找到 token 元素 (尝试 {retry+1}/3)")
+                    logger.warning(f"anchor_html 未找到 token 元素 (尝试 {retry+1}/{max_attempts})")
                     continue
                     
                 base_recaptcha_token = str(token_element.get("value"))
@@ -123,7 +123,7 @@ class NetworkClient:
                 
                 match = re.search(r'rresp","(.*?)"', reload_response.text)
                 if not match:
-                    logger.warning(f"未找到 rresp (尝试 {retry+1}/3)")
+                    logger.warning(f"未找到 rresp (尝试 {retry+1}/{max_attempts})")
                     continue
                     
                 final_token = match.group(1)
@@ -131,7 +131,7 @@ class NetworkClient:
                 return final_token
                 
             except Exception as e:
-                logger.error(f"获取 recaptcha_token 异常 (尝试 {retry+1}/3): {e}")
+                logger.error(f"获取 recaptcha_token 异常 (尝试 {retry+1}/{max_attempts}): {e}")
                     
         logger.error("获取 Recaptcha Token 失败")
         return None
