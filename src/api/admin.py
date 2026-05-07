@@ -482,10 +482,20 @@ async def refresh_subscription_pool(url: str, activate: bool = True) -> dict[str
 
     active_proxy_url = ""
     active_node_name = ""
+    active_index = 0
     if activate and pool:
-        first = pool[0]
-        active_node_name = first.get("name", "")
-        active_proxy_url = await _activate_node_by_uri(first["raw_uri"], active_node_name, 0)
+        last_error: Exception | None = None
+        for idx, node in enumerate(pool):
+            try:
+                active_node_name = node.get("name", "")
+                active_proxy_url = await _activate_node_by_uri(node["raw_uri"], active_node_name, idx)
+                active_index = idx
+                break
+            except Exception as e:
+                last_error = e
+                logger.warning(f"自动激活节点失败，尝试下一个: {node.get('name') or node.get('raw_uri', '')[:40]}: {e}")
+        if not active_proxy_url and last_error:
+            logger.warning(f"节点池已导入，但没有节点成功激活: {last_error}")
 
     return {
         "total": len(nodes),
@@ -495,6 +505,7 @@ async def refresh_subscription_pool(url: str, activate: bool = True) -> dict[str
         "excluded_count": excluded_count,
         "active_proxy_url": active_proxy_url,
         "active_node_name": active_node_name,
+        "active_index": active_index,
     }
 
 

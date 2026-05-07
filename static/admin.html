@@ -804,6 +804,8 @@ async function fetchSubscription(opts={}) {
     _poolUris.clear();
     _nodePool.forEach(p=>_poolUris.add(p.raw_uri));
     updatePoolUI();
+    await loadNodePool();
+    await loadProxyStatus();
   } catch(e) {
     if (!opts.silent) showToast(e.message,'err');
     listEl.innerHTML='<div class="empty">'+esc(e.message)+'</div>';
