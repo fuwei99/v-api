@@ -25,14 +25,22 @@ def load_config() -> dict[str, Any]:
     env_config_str = os.environ.get("CONFIG", "").strip()
     if env_config_str:
         try:
-            env_config_path = Path(env_config_str)
-            if env_config_path.exists() and env_config_path.is_file():
-                with open(env_config_path, 'r', encoding='utf-8') as f:
-                    env_config = json.load(f)
-                config_source = str(env_config_path)
-            else:
+            if env_config_str.startswith(("{", "[")):
                 env_config = json.loads(env_config_str)
                 config_source = "CONFIG"
+            else:
+                try:
+                    env_config_path = Path(env_config_str)
+                    if env_config_path.exists() and env_config_path.is_file():
+                        with open(env_config_path, 'r', encoding='utf-8') as f:
+                            env_config = json.load(f)
+                        config_source = str(env_config_path)
+                    else:
+                        env_config = json.loads(env_config_str)
+                        config_source = "CONFIG"
+                except OSError:
+                    env_config = json.loads(env_config_str)
+                    config_source = "CONFIG"
 
             config_dict = default_config.model_dump()
             config_dict.update(env_config)
@@ -47,7 +55,7 @@ def load_config() -> dict[str, Any]:
                 })
             return final_dict
         except Exception as e:
-            logger.error(f"环境变量 CONFIG 解析失败，回退到配置文件: {e}")
+            logger.error(f"环境变量 CONFIG 解析失败，回退到配置文件: {type(e).__name__}: {e}")
 
     # ── 回退：config/config.json ───────────────────────────────────
     if not os.path.exists(CONFIG_FILE):
