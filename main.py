@@ -40,6 +40,21 @@ async def main() -> None:
     
     logger.debug("初始化 API 密钥管理器")
     api_key_manager.load_keys()
+
+    from src.api.admin import ensure_admin_password
+    ensure_admin_password()
+
+    from src.transport.codec import needs_worker
+    from src.transport.worker import worker
+
+    saved_uri = str(config.get("active_node_uri") or "").strip()
+    saved_name = str(config.get("active_node_name") or "")
+    if saved_uri and needs_worker(saved_uri):
+        try:
+            proxy_url = worker.start_with_uri(saved_uri, name=saved_name)
+            logger.success(f"✅ 已自动恢复上次的代理节点: {saved_name or saved_uri[:40]} → {proxy_url}")
+        except Exception as e:
+            logger.warning(f"⚠ 自动恢复代理节点失败: {e}")
     
     logger.debug("创建 Vertex AI 客户端")
     vertex_client = VertexAIClient()

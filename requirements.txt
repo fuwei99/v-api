@@ -10,3 +10,6 @@ curl_cffi
 # HTML 解析 (用于抓取 Recaptcha Token)
 beautifulsoup4
 lxml
+
+# YAML 解析 (用于订阅 Clash 格式)
+pyyaml

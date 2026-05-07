@@ -42,6 +42,21 @@ class NetworkClient:
     def _get_imp(self) -> str:
         return random.choice(self.browser_targets)
 
+    @property
+    def proxy_url(self) -> Optional[str]:
+        """动态读取出站代理：环境变量 PROXY_URL 优先，其次 config.proxy_url，最后兼容旧 proxy 配置。"""
+        env_proxy = os.environ.get("PROXY_URL", "").strip()
+        if env_proxy:
+            return env_proxy
+        try:
+            config = load_config()
+            configured_proxy = str(config.get("proxy_url") or "").strip()
+            if configured_proxy:
+                return configured_proxy
+            return get_primary_proxy(config)
+        except Exception:
+            return get_primary_proxy(self.config)
+
     async def fetch_recaptcha_token(self, session: requests.AsyncSession) -> Optional[str]:
         """获取 Google Recaptcha Token"""
         import os
@@ -125,7 +140,7 @@ class NetworkClient:
         """创建一个带有随机伪装指纹的 Session"""
         imp = self._get_imp()
         logger.debug(f"创建新 Session (指纹: {imp})")
-        proxy_url = get_primary_proxy(self.config)
+        proxy_url = self.proxy_url
         
         return requests.AsyncSession(
             impersonate=imp,

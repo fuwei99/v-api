@@ -4,6 +4,7 @@ logs/
 
 # Tests
 test_list_models.py
+reference/
 
 # Python
 __pycache__/

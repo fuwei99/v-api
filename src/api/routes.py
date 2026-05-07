@@ -126,9 +126,15 @@ def extract_api_key_from_request(request: Request) -> str | None:
 class APIKeyMiddleware(BaseHTTPMiddleware):
     """API密钥认证中间件"""
 
-    def __init__(self, app: ASGIApp, excluded_paths: list[str] | None = None):
+    def __init__(
+        self,
+        app: ASGIApp,
+        excluded_paths: list[str] | None = None,
+        excluded_prefixes: list[str] | None = None,
+    ):
         super().__init__(app)
         self.excluded_paths: list[str] = excluded_paths or ["/", "/health"]
+        self.excluded_prefixes: list[str] = excluded_prefixes or []
 
     async def dispatch(self, request: Request, call_next: collections.abc.Callable[[Request], collections.abc.Awaitable[Any]]):
         
@@ -143,6 +149,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         
         if self.excluded_paths and path in self.excluded_paths:
             logger.debug(f"路径 {path} 在排除列表中，跳过认证")
+            return await call_next(request)
+
+        if any(path.startswith(prefix) for prefix in self.excluded_prefixes):
+            logger.debug(f"路径 {path} 命中排除前缀，跳过认证")
             return await call_next(request)
 
         
@@ -212,7 +222,11 @@ def create_app(vertex_client: VertexAIClient) -> FastAPI:
 
     
     logger.debug("添加中间件")
-    app.add_middleware(APIKeyMiddleware, excluded_paths=["/", "/health"])
+    app.add_middleware(
+        APIKeyMiddleware,
+        excluded_paths=["/", "/health", "/admin"],
+        excluded_prefixes=["/api/admin/", "/admin/", "/static/"],
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -221,6 +235,9 @@ def create_app(vertex_client: VertexAIClient) -> FastAPI:
         allow_headers=["*"],
         expose_headers=["*"],
     )
+
+    from src.api.admin import router as admin_router
+    app.include_router(admin_router)
 
     
     

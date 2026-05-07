@@ -57,8 +57,56 @@ class VertexAIClient:
 
     async def stream_chat(self, model: str, gemini_payload: dict[str, Any], **kwargs: Any) -> AsyncGenerator[str, Any]:
         logger.info(f"开始流式聊天请求: 模型={model}")
-        async for chunk in self._stream_chat_inner(model, gemini_payload=gemini_payload, **kwargs):
-            yield chunk
+        config = load_config()
+        pool: list[dict[str, Any]] = config.get("node_pool", [])
+        if len(pool) < 2:
+            async for chunk in self._stream_chat_inner(model, gemini_payload=gemini_payload, **kwargs):
+                yield chunk
+            return
+
+        index = int(config.get("node_pool_index", 0) or 0) % len(pool)
+        tried = 0
+        last_error_chunk: str | None = None
+
+        while tried < len(pool):
+            node = pool[index]
+            node_name = str(node.get("name") or node.get("raw_uri", "")[:40])
+            logger.info(f"节点池：使用节点 [{index + 1}/{len(pool)}] {node_name}")
+            await self._apply_pool_node(node, index)
+
+            got_content = False
+            failed = False
+            async for chunk in self._stream_chat_inner(model, gemini_payload=gemini_payload, **kwargs):
+                if '"error"' in chunk and not got_content:
+                    last_error_chunk = chunk
+                    failed = True
+                    break
+                got_content = True
+                last_error_chunk = None
+                yield chunk
+
+            if not failed:
+                return
+
+            tried += 1
+            index = (index + 1) % len(pool)
+            logger.warning(f"节点失败，自动切换到节点 [{index + 1}/{len(pool)}]")
+
+        if last_error_chunk:
+            yield last_error_chunk
+        else:
+            yield InternalError(message="节点池所有节点均失败").to_sse()
+
+    async def _apply_pool_node(self, node: dict[str, Any], index: int) -> None:
+        """切换代理到节点池中指定节点，写入 config，network 会在新 Session 中动态读取。"""
+        raw_uri = str(node.get("raw_uri") or "")
+        name = str(node.get("name") or "")
+        try:
+            from src.api.admin import _activate_node_by_uri
+            await _activate_node_by_uri(raw_uri, name, index)
+            logger.info(f"节点池已切换到节点 [{index + 1}]: {name or raw_uri[:40]}")
+        except Exception as e:
+            logger.warning(f"切换节点代理失败: {e}")
 
     async def _execute_single_attempt(
         self,

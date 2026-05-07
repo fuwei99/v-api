@@ -16,6 +16,16 @@ class AppConfig(BaseModel):
     drop_max_tokens: bool = True
     log_payload: bool = False  # 为 true 时将原始 fetch/response 保存到 logs 目录
     api_key: str | None = None
+    admin_password: str = ""  # 管理面板密码，留空则首次启动自动生成并打印到日志
+    proxy_url: str = ""  # 出站代理 URL，优先级低于 PROXY_URL 环境变量
+    subscription_url: str = ""  # 上次填入的订阅地址（用于面板自动回填）
+    active_node_uri: str = ""  # 当前激活的节点 URI（重启后会自动恢复）
+    active_node_name: str = ""  # 当前激活节点的显示名
+    node_pool: list[dict[str, Any]] = Field(default_factory=list)  # 节点池
+    node_pool_index: int = 0  # 当前节点池索引
+    anti429_enabled: bool = False
+    anti429_target: str = "system"
+    force_no_stream: bool = False
 
     model_config = ConfigDict(extra="allow")
 
