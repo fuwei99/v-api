@@ -435,14 +435,28 @@ _HK_SG_KEYWORDS = (
     "新加坡", "狮城", "singapore", " sg", "[sg", "-sg", "_sg", "sgp",
 )
 
+_SUBSCRIPTION_META_KEYWORDS = (
+    "剩余流量", "流量剩余", "重置剩余", "距离下次重置", "套餐到期", "到期时间",
+    "expire", "traffic", "remaining", "reset", "官网", "订阅", "用户信息",
+)
 
-def _is_hk_sg_node(node: dict[str, Any]) -> bool:
-    text = " ".join(
+
+def _node_search_text(node: dict[str, Any]) -> str:
+    return " ".join(
         str(node.get(key, ""))
         for key in ("name", "server", "type")
     ).lower()
+
+
+def _is_hk_sg_node(node: dict[str, Any]) -> bool:
+    text = _node_search_text(node)
     padded = f" {text} "
     return any(keyword in padded for keyword in _HK_SG_KEYWORDS)
+
+
+def _is_subscription_meta_node(node: dict[str, Any]) -> bool:
+    text = _node_search_text(node)
+    return any(keyword in text for keyword in _SUBSCRIPTION_META_KEYWORDS)
 
 
 def _build_auto_node_pool(nodes: list[dict[str, Any]], cfg: dict[str, Any]) -> tuple[list[dict[str, str]], int]:
@@ -453,6 +467,9 @@ def _build_auto_node_pool(nodes: list[dict[str, Any]], cfg: dict[str, Any]) -> t
     for node in nodes:
         uri = str(node.get("raw_uri", "")).strip()
         if not uri:
+            continue
+        if _is_subscription_meta_node(node):
+            excluded += 1
             continue
         if not allow_hk_sg and _is_hk_sg_node(node):
             excluded += 1
