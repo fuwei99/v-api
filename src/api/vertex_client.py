@@ -273,10 +273,8 @@ class VertexAIClient:
                     is_first_auth_attempt = True
                 
                 if not recaptcha_token:
-                    if len(pool) > 1 and attempt + 1 >= node_retry_before_switch:
-                        logger.warning(
-                            f"当前节点获取 Recaptcha Token 失败已达 {node_retry_before_switch} 次，交由节点池切换到下一个节点"
-                        )
+                    if len(pool) > 1:
+                        logger.warning("当前节点获取 Recaptcha Token 失败，交由节点池立即切换到下一个节点")
                         yield AuthenticationError(
                             "Could not fetch recaptcha token via current proxy."
                         ).to_sse()
@@ -333,14 +331,6 @@ class VertexAIClient:
                         yield e.to_sse()
                         return
                     
-                    pool = load_config().get("node_pool", [])
-                    if len(pool) > 1 and attempt + 1 >= node_retry_before_switch:
-                        logger.warning(
-                            f"当前节点认证/Recaptcha 失败已达 {node_retry_before_switch} 次，交由节点池切换到下一个节点"
-                        )
-                        yield e.to_sse()
-                        return
-
                     if attempt < max_retries:
                         attempt += 1
                         await asyncio.sleep(node_retry_interval)
