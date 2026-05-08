@@ -341,8 +341,14 @@ class VertexAIClient:
                     if content_yielded or attempt >= max_retries:
                         yield e.to_sse()
                         return
+
+                    pool = load_config().get("node_pool", [])
+                    if len(pool) > 1:
+                        logger.warning("当前节点触发限流，交由节点池切换到下一个节点")
+                        yield e.to_sse()
+                        return
                     
-                    wait_time = e.retry_after if e.retry_after else min(30, 0)
+                    wait_time = e.retry_after if e.retry_after else 1
                     logger.info(f"触发限流，等待 {wait_time}s 后重试 (第 {attempt + 1} 次重试)")
                     attempt += 1
                     await asyncio.sleep(wait_time)
@@ -354,7 +360,7 @@ class VertexAIClient:
                          yield e.to_sse()
                          return
                 
-                    wait_time = min(15, 0)
+                    wait_time = 1
                     logger.info(f"触发可重试 Vertex 错误，等待 {wait_time:.1f}s 后重试 (第 {attempt + 1} 次重试)")
                     attempt += 1
                     await asyncio.sleep(wait_time)
