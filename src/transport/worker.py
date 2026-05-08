@@ -168,6 +168,12 @@ class WorkerManager:
             self._active_name = None
 
     def start_with_uri(self, uri: str, name: str = "", port: int = SOCKS_INBOUND_PORT) -> str:
+        if self.is_running and self._active_uri == uri and self._port == port:
+            if name and self._active_name != name:
+                self._active_name = name
+            logger.info(f"[Worker] 复用当前节点 pid={self._proc.pid if self._proc else 'unknown'}，节点={name or uri[:40]}")
+            return self.proxy_url
+
         binary = self.ensure_binary()
 
         cfg = build_config(uri, socks_port=port)

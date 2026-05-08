@@ -104,7 +104,7 @@ class VertexAIClient:
         try:
             from src.api.admin import _activate_node_by_uri
             await _activate_node_by_uri(raw_uri, name, index)
-            logger.info(f"节点池已切换到节点 [{index + 1}]: {name or raw_uri[:40]}")
+            logger.info(f"节点池已激活节点 [{index + 1}]: {name or raw_uri[:40]}")
         except Exception as e:
             logger.warning(f"切换节点代理失败: {e}")
 

@@ -25,3 +25,5 @@ Thumbs.db
 # Config
 config/config.json
 config/api_keys.txt
+proxy/
+proxy/config.json
