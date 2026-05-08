@@ -539,6 +539,8 @@ class SettingsBody(BaseModel):
     port_api: Optional[int] = None
     debug: Optional[bool] = None
     max_retries: Optional[int] = None
+    node_retry_before_switch: Optional[int] = None
+    node_retry_interval_seconds: Optional[float] = None
     proxy_url: Optional[str] = None
     admin_password: Optional[str] = None
     anti429_enabled: Optional[bool] = None
@@ -546,6 +548,8 @@ class SettingsBody(BaseModel):
     force_no_stream: Optional[bool] = None
     anti_tracking: Optional[bool] = None
     drop_max_tokens: Optional[bool] = None
+    log_payload: Optional[bool] = None
+    allow_hk_sg_nodes: Optional[bool] = None
 
 
 class KeyBody(BaseModel):
@@ -602,6 +606,8 @@ async def get_settings(request: Request) -> dict[str, Any]:
         "port_api": cfg.get("port_api", 2156),
         "debug": bool(cfg.get("debug", False)),
         "max_retries": int(cfg.get("max_retries", 2)),
+        "node_retry_before_switch": int(cfg.get("node_retry_before_switch", 10)),
+        "node_retry_interval_seconds": float(cfg.get("node_retry_interval_seconds", 0.5)),
         "proxy_url": cfg.get("proxy_url", ""),
         "env_proxy_url_override": env_proxy,
         "admin_password_env_locked": bool(os.environ.get("ADMIN_PASSWORD", "").strip()),
@@ -610,6 +616,8 @@ async def get_settings(request: Request) -> dict[str, Any]:
         "force_no_stream": bool(cfg.get("force_no_stream", False)),
         "anti_tracking": bool(cfg.get("anti_tracking", True)),
         "drop_max_tokens": bool(cfg.get("drop_max_tokens", True)),
+        "log_payload": bool(cfg.get("log_payload", False)),
+        "allow_hk_sg_nodes": bool(cfg.get("allow_hk_sg_nodes", False)),
     }
 
 
@@ -635,6 +643,16 @@ async def update_settings(body: SettingsBody, request: Request) -> dict[str, Any
         if body.max_retries < 0 or body.max_retries > 100:
             raise HTTPException(status_code=400, detail="max_retries 应在 0-100")
         cfg["max_retries"] = int(body.max_retries)
+
+    if body.node_retry_before_switch is not None:
+        if body.node_retry_before_switch < 1 or body.node_retry_before_switch > 100:
+            raise HTTPException(status_code=400, detail="node_retry_before_switch 应在 1-100")
+        cfg["node_retry_before_switch"] = int(body.node_retry_before_switch)
+
+    if body.node_retry_interval_seconds is not None:
+        if body.node_retry_interval_seconds < 0 or body.node_retry_interval_seconds > 30:
+            raise HTTPException(status_code=400, detail="node_retry_interval_seconds 应在 0-30")
+        cfg["node_retry_interval_seconds"] = float(body.node_retry_interval_seconds)
 
     if body.proxy_url is not None:
         pu = body.proxy_url.strip()
@@ -667,6 +685,12 @@ async def update_settings(body: SettingsBody, request: Request) -> dict[str, Any
 
     if body.drop_max_tokens is not None:
         cfg["drop_max_tokens"] = bool(body.drop_max_tokens)
+
+    if body.log_payload is not None:
+        cfg["log_payload"] = bool(body.log_payload)
+
+    if body.allow_hk_sg_nodes is not None:
+        cfg["allow_hk_sg_nodes"] = bool(body.allow_hk_sg_nodes)
 
     _write_json(CONFIG_FILE, cfg)
     return {"status": "ok", "notes": notes}

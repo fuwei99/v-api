@@ -250,6 +250,9 @@ class VertexAIClient:
         """
         max_retries = self.max_retries
         content_yielded = False
+        retry_config = load_config()
+        node_retry_before_switch = max(1, int(retry_config.get("node_retry_before_switch", 10) or 10))
+        node_retry_interval = max(0, float(retry_config.get("node_retry_interval_seconds", 0.5)))
         
         logger.debug(f"开始内部流式聊天，最大重试次数: {max_retries}")
 
@@ -270,7 +273,10 @@ class VertexAIClient:
                     is_first_auth_attempt = True
                 
                 if not recaptcha_token:
-                    if len(pool) > 1:
+                    if len(pool) > 1 and attempt + 1 >= node_retry_before_switch:
+                        logger.warning(
+                            f"当前节点获取 Recaptcha Token 失败已达 {node_retry_before_switch} 次，交由节点池切换到下一个节点"
+                        )
                         yield AuthenticationError(
                             "Could not fetch recaptcha token via current proxy."
                         ).to_sse()
@@ -281,7 +287,7 @@ class VertexAIClient:
                     attempt += 1
                     await session.close()
                     session = self.network.create_session()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(node_retry_interval)
                     continue
                 
                 if is_first_auth_attempt:
@@ -327,9 +333,17 @@ class VertexAIClient:
                         yield e.to_sse()
                         return
                     
+                    pool = load_config().get("node_pool", [])
+                    if len(pool) > 1 and attempt + 1 >= node_retry_before_switch:
+                        logger.warning(
+                            f"当前节点认证/Recaptcha 失败已达 {node_retry_before_switch} 次，交由节点池切换到下一个节点"
+                        )
+                        yield e.to_sse()
+                        return
+
                     if attempt < max_retries:
                         attempt += 1
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(node_retry_interval)
                         continue
                     else:
                         logger.error("重试次数耗尽")
@@ -343,12 +357,14 @@ class VertexAIClient:
                         return
 
                     pool = load_config().get("node_pool", [])
-                    if len(pool) > 1:
-                        logger.warning("当前节点触发限流，交由节点池切换到下一个节点")
+                    if len(pool) > 1 and attempt + 1 >= node_retry_before_switch:
+                        logger.warning(
+                            f"当前节点触发限流已达 {node_retry_before_switch} 次，交由节点池切换到下一个节点"
+                        )
                         yield e.to_sse()
                         return
                     
-                    wait_time = e.retry_after if e.retry_after else 1
+                    wait_time = e.retry_after if e.retry_after else node_retry_interval
                     logger.info(f"触发限流，等待 {wait_time}s 后重试 (第 {attempt + 1} 次重试)")
                     attempt += 1
                     await asyncio.sleep(wait_time)
@@ -359,8 +375,16 @@ class VertexAIClient:
                     if not e.is_retryable or content_yielded or attempt >= max_retries:
                          yield e.to_sse()
                          return
+
+                    pool = load_config().get("node_pool", [])
+                    if len(pool) > 1 and attempt + 1 >= node_retry_before_switch:
+                        logger.warning(
+                            f"当前节点可重试 Vertex 错误已达 {node_retry_before_switch} 次，交由节点池切换到下一个节点"
+                        )
+                        yield e.to_sse()
+                        return
                 
-                    wait_time = 1
+                    wait_time = node_retry_interval
                     logger.info(f"触发可重试 Vertex 错误，等待 {wait_time:.1f}s 后重试 (第 {attempt + 1} 次重试)")
                     attempt += 1
                     await asyncio.sleep(wait_time)
@@ -373,7 +397,7 @@ class VertexAIClient:
                         return
                     
                     attempt += 1
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(node_retry_interval)
                     continue
         finally:
             await session.close()

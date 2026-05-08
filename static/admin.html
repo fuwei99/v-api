@@ -236,12 +236,28 @@ label{display:block;font-size:11px;color:var(--tx2);text-transform:uppercase;let
             <div class="field">
               <label>Max Retries</label>
               <input type="number" id="max_retries" min="0" max="100">
+            </div>
+            <div class="field">
+              <label>Node Retries</label>
+              <input type="number" id="node_retry_before_switch" min="1" max="100">
+              <div class="fhint">当前节点失败多少次后切换到下一个节点</div>
+            </div>
+            <div class="field">
+              <label>Retry Interval</label>
+              <input type="number" id="node_retry_interval_seconds" min="0" max="30" step="0.1">
+              <div class="fhint">单节点重试间隔，单位秒</div>
               <div class="fhint">单节点失败时最大重试次数，耗尽后自动切换节点池的下一个</div>
             </div>
             <div class="full">
               <div class="toggle-row">
                 <div class="toggle-info"><div class="t-title">Debug 日志模式</div><div class="t-sub">输出 DEBUG 级别详细日志，正常运行建议关闭</div></div>
                 <label class="tog"><input type="checkbox" id="debug"><span class="tog-track"><span class="tog-thumb"></span></span></label>
+              </div>
+            </div>
+            <div class="full">
+              <div class="toggle-row">
+                <div class="toggle-info"><div class="t-title">Payload 日志 (log_payload)</div><div class="t-sub">保存原始 fetch/response 到 logs 目录，调试时开启</div></div>
+                <label class="tog"><input type="checkbox" id="log_payload"><span class="tog-track"><span class="tog-thumb"></span></span></label>
               </div>
             </div>
           </div>
@@ -393,6 +409,13 @@ label{display:block;font-size:11px;color:var(--tx2);text-transform:uppercase;let
             <label>订阅地址</label>
             <input type="text" id="sub_url" placeholder="https://example.com/subscribe?token=...">
           </div>
+          <div class="toggle-row" style="margin-top:12px">
+            <div class="toggle-info">
+              <div class="t-title">允许香港/新加坡节点</div>
+              <div class="t-sub">重新拉取订阅时生效；关闭时会跳过香港和新加坡节点</div>
+            </div>
+            <label class="tog"><input type="checkbox" id="allow_hk_sg_nodes"><span class="tog-track"><span class="tog-thumb"></span></span></label>
+          </div>
           <div class="actions">
             <button class="btn btn-primary" id="fetchBtn" onclick="fetchSubscription()">Fetch nodes</button>
             <span id="subSummary" class="fhint"></span>
@@ -521,6 +544,8 @@ async function loadSettings() {
   const s = await api('GET','/api/admin/settings');
   document.getElementById('port_api').value = s.port_api;
   document.getElementById('max_retries').value = s.max_retries;
+  document.getElementById('node_retry_before_switch').value = s.node_retry_before_switch;
+  document.getElementById('node_retry_interval_seconds').value = s.node_retry_interval_seconds;
   document.getElementById('debug').checked = s.debug;
   document.getElementById('proxy_url').value = s.proxy_url || '';
   document.getElementById('portBadge').textContent = 'Port ' + s.port_api;
@@ -529,6 +554,8 @@ async function loadSettings() {
   document.getElementById('force_no_stream').checked = !!s.force_no_stream;
   document.getElementById('anti_tracking').checked = !!s.anti_tracking;
   document.getElementById('drop_max_tokens').checked = !!s.drop_max_tokens;
+  document.getElementById('log_payload').checked = !!s.log_payload;
+  document.getElementById('allow_hk_sg_nodes').checked = !!s.allow_hk_sg_nodes;
 
   const warn = document.getElementById('envOverrideWarn');
   if (s.env_proxy_url_override) {
@@ -543,7 +570,10 @@ async function saveSettings() {
   const body = {
     port_api: parseInt(document.getElementById('port_api').value,10),
     max_retries: parseInt(document.getElementById('max_retries').value,10),
+    node_retry_before_switch: parseInt(document.getElementById('node_retry_before_switch').value,10),
+    node_retry_interval_seconds: parseFloat(document.getElementById('node_retry_interval_seconds').value),
     debug: document.getElementById('debug').checked,
+    log_payload: document.getElementById('log_payload').checked,
   };
   try {
     const r = await api('PUT','/api/admin/settings',body);
@@ -560,6 +590,7 @@ async function saveProtection() {
       drop_max_tokens: document.getElementById('drop_max_tokens').checked,
       anti429_enabled: document.getElementById('anti429_enabled').checked,
       anti429_target: document.getElementById('anti429_target').value,
+      allow_hk_sg_nodes: document.getElementById('allow_hk_sg_nodes').checked,
     });
     showToast('已保存','ok');
   } catch(e) { showToast(e.message,'err'); }
@@ -793,6 +824,7 @@ async function fetchSubscription(opts={}) {
   btn.disabled=true; btn.textContent='Fetching...';
   listEl.innerHTML=''; document.getElementById('subSummary').textContent='';
   try {
+    await api('PUT','/api/admin/settings',{allow_hk_sg_nodes:document.getElementById('allow_hk_sg_nodes').checked});
     const data = await api('POST','/api/admin/subscribe',{url});
     document.getElementById('subSummary').textContent = `共 ${data.total} 个节点`;
     _allNodes = data.nodes||[];

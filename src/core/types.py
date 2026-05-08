@@ -25,6 +25,8 @@ class AppConfig(BaseModel):
     node_pool_index: int = 0  # 当前节点池索引
     allow_hk_sg_nodes: bool = False  # 订阅自动导入时是否允许香港/新加坡节点
     anti429_enabled: bool = False
+    node_retry_before_switch: int = 10
+    node_retry_interval_seconds: float = 0.5
     anti429_target: str = "system"
     force_no_stream: bool = False
 
