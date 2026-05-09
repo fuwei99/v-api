@@ -27,6 +27,26 @@ from .parser import (
 logger = get_logger(__name__)
 
 
+def _strip_sse_data_prefix(payload: str) -> str:
+    """Remove SSE data prefixes before JSON parsing."""
+    text = payload.strip()
+    if not text:
+        return text
+
+    lines = text.splitlines()
+    if lines and all(line.strip().startswith("data:") or not line.strip() for line in lines):
+        return "\n".join(
+            line.strip()[5:].lstrip()
+            for line in lines
+            if line.strip().startswith("data:")
+        ).strip()
+
+    if text.startswith("data:"):
+        return text[5:].lstrip()
+
+    return text
+
+
 class StreamProcessor:
     """
     流式响应处理器。
@@ -190,7 +210,9 @@ class StreamProcessor:
                                 # 尝试解析
                                 try:
                                     # 预处理：去掉可能的前导 [ 或 ,
-                                    clean_obj_str = potential_obj_str.strip(' ,[]\n\r\t')
+                                    clean_obj_str = _strip_sse_data_prefix(
+                                        potential_obj_str.strip(' ,[]\n\r\t')
+                                    )
                                     if clean_obj_str.startswith('{') and clean_obj_str.endswith('}'):
                                         item_dict = json.loads(clean_obj_str)
                                         parse_single_upstream_item(item_dict, state)
@@ -209,12 +231,24 @@ class StreamProcessor:
                                                 sent_parts_content[i] = {"text": p_text, "thought": is_thought}
                                             else:
                                                 old_content = sent_parts_content[i]["text"]
-                                                if len(p_text) > len(old_content):
-                                                    new_text = p_text[len(old_content):]
-                                                    delta_part = p.copy()
-                                                    delta_part["text"] = new_text
-                                                    delta_parts.append(delta_part)
-                                                    sent_parts_content[i]["text"] = p_text
+                                                if isinstance(p_text, str) and isinstance(old_content, str):
+                                                    if p_text.startswith(old_content):
+                                                        new_text = p_text[len(old_content):]
+                                                        if new_text:
+                                                            delta_part = p.copy()
+                                                            delta_part["text"] = new_text
+                                                            delta_parts.append(delta_part)
+                                                    elif p_text:
+                                                        delta_parts.append(p)
+
+                                                    if p_text:
+                                                        sent_parts_content[i]["text"] = (
+                                                            p_text if p_text.startswith(old_content)
+                                                            else old_content + p_text
+                                                        )
+                                                elif p != sent_parts_content[i].get("part"):
+                                                    delta_parts.append(p)
+                                                    sent_parts_content[i]["part"] = p
                                         
                                         # 如果有内容更新，或者有结束标志且还没发过，就发送
                                         has_finish = current_result.get("finish_reason") is not None
